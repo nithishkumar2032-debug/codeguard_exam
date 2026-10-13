@@ -7,6 +7,7 @@ class PersistedExamSession {
   final Map<String, String> codingDrafts;
   final Set<String> reviewFlagIds;
   final int remainingSeconds;
+  final int violationCount;
   final DateTime savedAt;
 
   const PersistedExamSession({
@@ -14,6 +15,7 @@ class PersistedExamSession {
     required this.codingDrafts,
     required this.reviewFlagIds,
     required this.remainingSeconds,
+    this.violationCount = 0,
     required this.savedAt,
   });
 }
@@ -30,6 +32,7 @@ abstract class ExamStorageService {
     required Map<String, String> codingDrafts,
     required Set<String> reviewFlagIds,
     required int remainingSeconds,
+    int violationCount = 0,
   });
 
   Future<PersistedExamSession?> restoreSession();
@@ -43,6 +46,7 @@ class SharedPrefsExamStorageService implements ExamStorageService {
   static const String _keyCodingDrafts = 'codeguard_coding_drafts';
   static const String _keyReviewFlags = 'codeguard_review_flags';
   static const String _keyRemainingSeconds = 'codeguard_remaining_seconds';
+  static const String _keyViolationCount = 'codeguard_violation_count';
   static const String _keySavedTimestamp = 'codeguard_saved_timestamp';
 
   final SharedPreferences? _prefsInstance;
@@ -59,6 +63,7 @@ class SharedPrefsExamStorageService implements ExamStorageService {
     required Map<String, String> codingDrafts,
     required Set<String> reviewFlagIds,
     required int remainingSeconds,
+    int violationCount = 0,
   }) async {
     try {
       final prefs = await _getPrefs();
@@ -66,6 +71,7 @@ class SharedPrefsExamStorageService implements ExamStorageService {
       await prefs.setString(_keyCodingDrafts, jsonEncode(codingDrafts));
       await prefs.setString(_keyReviewFlags, jsonEncode(reviewFlagIds.toList()));
       await prefs.setInt(_keyRemainingSeconds, remainingSeconds);
+      await prefs.setInt(_keyViolationCount, violationCount);
       await prefs.setString(_keySavedTimestamp, DateTime.now().toIso8601String());
     } catch (_) {
       // Persistence failures must not crash the exam experience
@@ -80,12 +86,14 @@ class SharedPrefsExamStorageService implements ExamStorageService {
       final codingJson = prefs.getString(_keyCodingDrafts);
       final reviewJson = prefs.getString(_keyReviewFlags);
       final seconds = prefs.getInt(_keyRemainingSeconds);
+      final violations = prefs.getInt(_keyViolationCount) ?? 0;
       final timestampStr = prefs.getString(_keySavedTimestamp);
 
       if (mcqJson == null &&
           codingJson == null &&
           reviewJson == null &&
-          seconds == null) {
+          seconds == null &&
+          violations == 0) {
         return null;
       }
 
@@ -130,6 +138,7 @@ class SharedPrefsExamStorageService implements ExamStorageService {
         codingDrafts: codingDrafts,
         reviewFlagIds: reviewFlagIds,
         remainingSeconds: validatedSeconds,
+        violationCount: violations,
         savedAt: savedAt,
       );
     } catch (_) {
@@ -147,6 +156,7 @@ class SharedPrefsExamStorageService implements ExamStorageService {
       await prefs.remove(_keyCodingDrafts);
       await prefs.remove(_keyReviewFlags);
       await prefs.remove(_keyRemainingSeconds);
+      await prefs.remove(_keyViolationCount);
       await prefs.remove(_keySavedTimestamp);
     } catch (_) {
       // Fail-safe cleanup

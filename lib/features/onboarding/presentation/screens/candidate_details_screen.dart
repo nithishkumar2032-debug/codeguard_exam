@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../../core/constants/app_strings.dart';
+import '../../../../core/network/supabase_service.dart';
 import '../../../../core/routes/app_routes.dart';
 import '../../../../widgets/responsive_builder.dart';
 import '../../models/candidate_details.dart';
@@ -20,6 +21,7 @@ class _CandidateDetailsScreenState extends State<CandidateDetailsScreen> {
   late final TextEditingController _nameController;
   late final TextEditingController _registerController;
   late final TextEditingController _examController;
+  bool _isAuthenticating = false;
 
   @override
   void initState() {
@@ -43,7 +45,8 @@ class _CandidateDetailsScreenState extends State<CandidateDetailsScreen> {
     super.dispose();
   }
 
-  void _onProceedPressed() {
+  Future<void> _onProceedPressed() async {
+    if (_isAuthenticating) return;
     if (_formKey.currentState?.validate() ?? false) {
       final details = CandidateDetails(
         studentName: _nameController.text.trim(),
@@ -51,11 +54,46 @@ class _CandidateDetailsScreenState extends State<CandidateDetailsScreen> {
         examinationName: _examController.text.trim(),
       );
 
-      Navigator.pushNamed(
-        context,
-        AppRoutes.instructions,
-        arguments: details,
-      );
+      if (SupabaseService.instance.isInitialized) {
+        setState(() => _isAuthenticating = true);
+        try {
+          await SupabaseService.instance.ensureAuthenticatedCandidate(
+            metadata: {
+              'student_name': details.studentName,
+              'register_number': details.registerNumber,
+              'examination_name': details.examinationName,
+            },
+          );
+        } catch (e) {
+          if (mounted) {
+            setState(() => _isAuthenticating = false);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Authentication connection error: $e'),
+                backgroundColor: Colors.red.shade700,
+                duration: const Duration(seconds: 5),
+                action: SnackBarAction(
+                  label: 'Retry',
+                  textColor: Colors.white,
+                  onPressed: _onProceedPressed,
+                ),
+              ),
+            );
+            return;
+          }
+        }
+        if (mounted) {
+          setState(() => _isAuthenticating = false);
+        }
+      }
+
+      if (mounted) {
+        Navigator.pushNamed(
+          context,
+          AppRoutes.instructions,
+          arguments: details,
+        );
+      }
     }
   }
 
@@ -257,9 +295,19 @@ class _CandidateDetailsScreenState extends State<CandidateDetailsScreen> {
                           // Submit Action
                           ElevatedButton.icon(
                             key: const Key('proceed_button'),
-                            onPressed: _onProceedPressed,
-                            icon: const Icon(Icons.arrow_forward),
-                            label: const Text(AppStrings.proceedToInstructions),
+                            onPressed: _isAuthenticating ? null : _onProceedPressed,
+                            icon: _isAuthenticating
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : const Icon(Icons.arrow_forward),
+                            label: Text(
+                              _isAuthenticating
+                                  ? 'Authenticating...'
+                                  : AppStrings.proceedToInstructions,
+                            ),
                           ),
                         ],
                       ),

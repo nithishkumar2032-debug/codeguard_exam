@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import '../../../../core/network/supabase_service.dart';
 import '../../../../core/routes/app_routes.dart';
 import '../../../../widgets/responsive_builder.dart';
 import '../../../onboarding/models/candidate_details.dart';
+import '../../data/supabase_remote_exam_service.dart';
+import '../../domain/services/lifecycle/exam_lifecycle_monitor.dart';
 import '../controllers/exam_controller.dart';
 import '../widgets/coding_challenge_view.dart';
 import '../widgets/exam_timer_display.dart';
@@ -9,15 +12,17 @@ import '../widgets/mcq_view.dart';
 import '../widgets/question_palette.dart';
 
 /// Main examination screen hosting the active countdown timer,
-/// question views, and palette navigation.
+/// question views, palette navigation, and integrity lifecycle monitoring.
 class ExamScreen extends StatefulWidget {
   final CandidateDetails candidateDetails;
   final ExamController? controller; // Injectable for unit/widget testing
+  final ExamLifecycleMonitor? lifecycleMonitor; // Injectable for testing
 
   const ExamScreen({
     super.key,
     required this.candidateDetails,
     this.controller,
+    this.lifecycleMonitor,
   });
 
   @override
@@ -26,30 +31,50 @@ class ExamScreen extends StatefulWidget {
 
 class _ExamScreenState extends State<ExamScreen> {
   late final ExamController _controller;
+  late final ExamLifecycleMonitor _lifecycleMonitor;
   bool _isDisposed = false;
+  bool _hasNavigatedToResults = false;
 
   @override
   void initState() {
     super.initState();
     _controller = widget.controller ??
-        ExamController(candidateDetails: widget.candidateDetails);
+        ExamController(
+          candidateDetails: widget.candidateDetails,
+          remoteExamService: SupabaseService.instance.isInitialized
+              ? SupabaseRemoteExamService()
+              : null,
+        );
+
+    _lifecycleMonitor = widget.lifecycleMonitor ??
+        ExamLifecycleMonitor(
+          controller: _controller,
+          onFirstViolationWarning: _showFirstViolationWarningDialog,
+        );
+    _lifecycleMonitor.onFirstViolationWarning ??= _showFirstViolationWarningDialog;
 
     _controller.addListener(_handleControllerUpdate);
 
     // Attempt restoring any draft answers saved in local storage
     _controller.restoreSessionIfAvailable();
 
-    // Start 30-minute countdown now that candidate has arrived at exam screen
+    // Start 30-minute countdown
     _controller.startTimer();
+
+    // Start lifecycle-based integrity monitoring for active exam
+    _lifecycleMonitor.startMonitoring();
   }
 
   void _handleControllerUpdate() {
     if (!mounted || _isDisposed) return;
 
     if (_controller.isSubmitted && _controller.examResult != null) {
-      // Navigate to results screen upon manual or timeout submission
+      _lifecycleMonitor.stopMonitoring();
+
+      // Navigate to results screen upon manual, timeout, or lifecycle submission exactly once
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
+        if (mounted && !_hasNavigatedToResults) {
+          _hasNavigatedToResults = true;
           Navigator.pushReplacementNamed(
             context,
             AppRoutes.examResults,
@@ -62,10 +87,59 @@ class _ExamScreenState extends State<ExamScreen> {
     }
   }
 
+  void _showFirstViolationWarningDialog() {
+    if (!mounted || _isDisposed || _controller.isSubmitted) return;
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext ctx) {
+        return AlertDialog(
+          icon: const Icon(
+            Icons.warning_amber_rounded,
+            size: 44,
+            color: Colors.amber,
+          ),
+          title: const Text('Integrity Warning (1 of 2)'),
+          content: const Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'You navigated away from the examination window or switched browser tabs.',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+              SizedBox(height: 12),
+              Text('• CodeGuard monitors browser focus and visibility during assessments.'),
+              SizedBox(height: 6),
+              Text(
+                '• A second detected interruption will automatically terminate and submit your examination.',
+                style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
+              ),
+              SizedBox(height: 6),
+              Text('• Please keep this window in focus until you finish your test.'),
+            ],
+          ),
+          actions: [
+            ElevatedButton(
+              key: const Key('acknowledge_warning_button'),
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('I Understand • Return to Exam'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   void dispose() {
     _isDisposed = true;
     _controller.removeListener(_handleControllerUpdate);
+    _lifecycleMonitor.stopMonitoring();
+    if (widget.lifecycleMonitor == null) {
+      _lifecycleMonitor.dispose();
+    }
     if (widget.controller == null) {
       _controller.dispose();
     }
@@ -113,6 +187,7 @@ class _ExamScreenState extends State<ExamScreen> {
               ),
               onPressed: () {
                 Navigator.of(ctx).pop();
+                _lifecycleMonitor.stopMonitoring();
                 _controller.submitExam(reason: 'Manual submission by candidate');
               },
               child: const Text('Confirm & Submit'),
@@ -185,6 +260,24 @@ class _ExamScreenState extends State<ExamScreen> {
           ],
         ),
         actions: [
+          if (_controller.violationCount > 0)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8.0),
+              child: Chip(
+                avatar: const Icon(
+                  Icons.warning_amber_rounded,
+                  color: Colors.amber,
+                  size: 16,
+                ),
+                label: Text(
+                  'Violation ${_controller.violationCount}/2',
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                ),
+                backgroundColor: Colors.amber.shade50,
+                side: BorderSide(color: Colors.amber.shade400),
+              ),
+            ),
+          const SizedBox(width: 8),
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 8.0),
             child: ExamTimerDisplay(
@@ -245,8 +338,8 @@ class _ExamScreenState extends State<ExamScreen> {
           const SizedBox(width: 20),
 
           // Palette Panel (25%)
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 320),
+          SizedBox(
+            width: 300,
             child: SingleChildScrollView(
               child: QuestionPalette(
                 totalQuestions: _controller.totalQuestionsCount,

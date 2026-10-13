@@ -45,8 +45,26 @@ abstract class CodeExecutionService {
 
 /// Safe placeholder execution service that does NOT invoke eval() or untrusted scripts.
 ///
-/// Ensures compliance with security standards by avoiding arbitrary code execution
-/// in the main Flutter web context while providing interactive test feedback to candidates.
+/// ============================================================================
+/// SECURITY NOTICE: Client-Side Sandbox Limitations & Server Requirements
+/// ============================================================================
+/// Client-side syntax validation and keyword inspection DO NOT constitute a secure
+/// execution sandbox. Untrusted JavaScript must NEVER be evaluated in the browser
+/// UI thread, web workers, or the database host.
+///
+/// Production Isolated Server Execution Requirements:
+/// 1. Host Isolation: Run in ephemeral micro-containers (e.g. gVisor, Firecracker,
+///    or Docker with seccomp/apparmor profiles) or hardened V8 isolates.
+/// 2. Strict Resource Quotas:
+///    - Memory ceiling (maximum 64MB - 128MB per run).
+///    - Wall-clock & CPU timeout (maximum 2000ms to eliminate infinite loops / ReDoS).
+///    - Process limits (pids-limit) to thwart fork bombs.
+/// 3. Zero Egress Networking: Container must operate with `--net=none` to prevent
+///    arbitrary remote network communication, secret exfiltration, or LAN scanning.
+/// 4. Read-Only Root Filesystem: Ephemeral in-memory tmpfs with no persistent disk writes.
+/// 5. Test Case Confidentiality: Hidden test cases (`coding_hidden_test_cases`)
+///    must be evaluated strictly server-side; test suites stream inputs into stdin
+///    and verify stdout against expected outputs, exposing only pass/fail tallies.
 class SafePlaceholderCodeExecutionService implements CodeExecutionService {
   @override
   Future<CodeExecutionResult> executeTests({
