@@ -97,7 +97,7 @@ class ExamLifecycleMonitor {
     _lastInterruptionTime = now;
 
     final currentViolations = controller.violationCount + 1;
-    controller.recordViolation(currentViolations, signalType: signal.name);
+    controller.recordViolation(currentViolations);
 
     if (currentViolations == 1) {
       // First violation: Stage a warning for display when candidate returns
