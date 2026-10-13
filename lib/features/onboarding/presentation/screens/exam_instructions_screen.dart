@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../../core/constants/app_strings.dart';
+import '../../../../core/routes/app_routes.dart';
 import '../../../../widgets/responsive_builder.dart';
 import '../../models/candidate_details.dart';
 
@@ -17,27 +18,17 @@ class _ExamInstructionsScreenState extends State<ExamInstructionsScreen> {
   bool _isDeclarationAccepted = false;
 
   void _onStartExamPressed(BuildContext context) {
-    showDialog<void>(
-      context: context,
-      builder: (BuildContext ctx) {
-        return AlertDialog(
-          icon: const Icon(Icons.rocket_launch_outlined, size: 36, color: Color(0xFF0F3E6D)),
-          title: const Text('Onboarding Complete!'),
-          content: Text(
-            'Candidate: ${widget.candidateDetails?.studentName ?? "Alex Morgan"}\n'
-            'Register No: ${widget.candidateDetails?.registerNumber ?? "CS-2026-8941"}\n'
-            'Exam: ${widget.candidateDetails?.examinationName ?? "CS301 Final"}\n\n'
-            'Milestone 2 (Onboarding & Instructions) successfully verified. '
-            'The active examination session & live timer will be initialized in Milestone 3.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('Understood'),
-            ),
-          ],
+    final details = widget.candidateDetails ??
+        const CandidateDetails(
+          studentName: 'Candidate',
+          registerNumber: 'REG-2026',
+          examinationName: 'Standard Examination',
         );
-      },
+
+    Navigator.pushNamed(
+      context,
+      AppRoutes.examSession,
+      arguments: details,
     );
   }
 
